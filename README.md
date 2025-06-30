@@ -5,6 +5,9 @@
 ![Docker](https://img.shields.io/badge/Docker-✓-blue?logo=docker)
 
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-✓-blue?logo=postgresql)
+
+![Python](https://img.shields.io/badge/Python-3.13+-blue?logo=python)
+
   
 
 ## 🌟 Основные возможности
@@ -249,3 +252,5 @@ docker-compose run backup-system python main.py start \
 --interval-unit hours \
 --enable-gdrive
 ```
+
+##  📜 [Лицензия](./LICENSE)
