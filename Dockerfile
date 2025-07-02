@@ -1,25 +1,31 @@
-# Используем официальный образ Python
+# Базовый образ Python
 FROM python:3.13-slim
 
-# Устанавливаем зависимости для PostgreSQL
+# Устанавливаем системные зависимости для psycopg2 и других пакетов
 RUN apt-get update && apt-get install -y \
+    gcc \
+    python3-dev \
     postgresql-client \
+    libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Создаем рабочую директорию
+# Устанавливаем Poetry
+RUN pip install --upgrade pip
+
+# Рабочая директория
 WORKDIR /app
 
-# Копируем зависимости
-COPY requirements.txt .
+# Копируем только файлы, необходимые для установки зависимостей
+COPY requirements.txt ./
 
-# Устанавливаем зависимости Python
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Копируем исходный код
-COPY . .
+# Устанавливаем зависимости
+RUN pip install -r requirements.txt
+# Копируем основной файл и остальное содержимое
+COPY main.py .
+COPY . .  
 
 # Создаем директорию для логов
 RUN mkdir -p /app/logs
 
-# Указываем команду для запуска
+# Команда для запуска
 CMD ["python", "main.py", "start"]
