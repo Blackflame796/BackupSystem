@@ -208,7 +208,7 @@ def main():
         ],
     )
 
-    parser = argparse.ArgumentParser(description="PostgreSQL Backup Manager")
+    parser = argparse.ArgumentParser(description="Backup System")
     parser.add_argument("start", help="Start scheduler", nargs="?")
     args = parser.parse_args()
 
