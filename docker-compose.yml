@@ -12,6 +12,7 @@ services:
       - PG_DATABASE=postgres
     volumes:
       - ./BackupSettings.json:/app/BackupSettings.json
+      - ./service_account.json:/app/service_account.json
       - ./Backups:/app/Backups
       - ./logs:/app/logs
     depends_on:
