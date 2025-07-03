@@ -1,28 +1,32 @@
-# Базовый образ Python
+# Базовый образ с нужной версией PostgreSQL
 FROM python:3.13-slim
 
-# Устанавливаем системные зависимости для psycopg2 и других пакетов
+# Устанавливаем системные зависимости и правильную версию PostgreSQL
 RUN apt-get update && apt-get install -y \
     gcc \
     python3-dev \
-    postgresql-client \
-    libpq-dev \
+    wget \
+    gnupg \
+    && echo "deb http://apt.postgresql.org/pub/repos/apt/ bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+    && wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - \
+    && apt-get update \
+    && apt-get install -y postgresql-client-17 \
     && rm -rf /var/lib/apt/lists/*
 
-# Устанавливаем Poetry
+# Устанавливаем Poetry и зависимости Python
 RUN pip install --upgrade pip
 
 # Рабочая директория
 WORKDIR /app
 
-# Копируем только файлы, необходимые для установки зависимостей
+# Копируем зависимости
 COPY requirements.txt ./
 
-# Устанавливаем зависимости
+# Устанавливаем Python-зависимости
 RUN pip install -r requirements.txt
-# Копируем основной файл и остальное содержимое
-COPY main.py .
-COPY . .  
+
+# Копируем остальные файлы
+COPY . .
 
 # Создаем директорию для логов
 RUN mkdir -p /app/logs
