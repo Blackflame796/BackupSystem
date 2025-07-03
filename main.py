@@ -24,7 +24,7 @@ class BackupManager:
         self.db_config = self.config["db_config"]
         self.backup_settings = self.config["backup_settings"]
         self.os_type = platform.system().lower()
-        self.folder_id = "17hDoQ2N44S06SS1atYaAOABMxeU_4jDg"  # Google Drive folder ID
+        self.folder_id = self.config["folder_id"]
         self.gdrive_manager = (
             GoogleDriveManager()
             if self.backup_settings["google_drive"].get("enabled")
@@ -46,6 +46,7 @@ class BackupManager:
                 "backup_interval": {"value": 30, "unit": "minutes"},
                 "google_drive": {
                     "enabled": False,
+                    "folder_id": "",
                     "retention": {"unit": "days", "value": 3},
                 },
                 "compression": "gzip",
