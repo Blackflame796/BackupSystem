@@ -1,193 +1,107 @@
 import os
 import logging
-import logging.handlers
-from pydrive.auth import GoogleAuth
-from pydrive.drive import GoogleDrive
-from typing import Optional, Dict, List
-from pathlib import Path
+from datetime import datetime, timedelta
+from typing import Optional
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
+from oauth2client.service_account import ServiceAccountCredentials
 
 
 class GoogleDriveManager:
-    def __init__(self, credentials_file: str = "credentials.txt"):
-        self.credentials_file = credentials_file
+    def __init__(self, service_account_file: str = "service_account.json"):
         self.logger = logging.getLogger(__name__)
-        self.drive = self._initialize_drive()
+        self.service_account_file = service_account_file
+        self.scopes = ["https://www.googleapis.com/auth/drive"]
+        self.service = self._build_service()
 
-    def _initialize_drive(self) -> Optional[GoogleDrive]:
-        """Инициализация подключения к Google Drive"""
+    def _build_service(self):
         try:
-            self.logger.info("Initializing Google Drive connection")
-            gauth = GoogleAuth()
-
-            if os.path.exists(self.credentials_file):
-                self.logger.debug("Loading credentials from %s", self.credentials_file)
-                gauth.LoadCredentialsFile(self.credentials_file)
-            else:
-                self.logger.warning("Credentials file not found")
-
-            if gauth.credentials is None:
-                self.logger.info("Starting OAuth authentication via local webserver")
-                gauth.LocalWebserverAuth()
-            elif gauth.access_token_expired:
-                self.logger.info("Refreshing expired access token")
-                gauth.Refresh()
-            else:
-                self.logger.info("Using existing valid credentials")
-                gauth.Authorize()
-
-            gauth.SaveCredentialsFile(self.credentials_file)
-            self.logger.info("Successfully initialized Google Drive connection")
-            return GoogleDrive(gauth)
-
+            credentials = ServiceAccountCredentials.from_json_keyfile_name(
+                self.service_account_file, scopes=self.scopes
+            )
+            service = build("drive", "v3", credentials=credentials)
+            self.logger.info("Google Drive API client initialized.")
+            return service
         except Exception as e:
             self.logger.error(
-                "Failed to initialize Google Drive: %s", str(e), exc_info=True
+                f"Failed to initialize Drive API client: {e}", exc_info=True
             )
             return None
 
-    def get_folder(self, folder_name: str) -> Optional[Dict]:
-        """Получение или создание папки на Google Drive"""
-        try:
-            self.logger.debug("Searching for folder: '%s'", folder_name)
-            query = (
-                f"title='{folder_name}' and "
-                "mimeType='application/vnd.google-apps.folder' and "
-                "trashed=false"
-            )
-            folder_list = self.drive.ListFile({"q": query}).GetList()
+    def is_initialized(self) -> bool:
+        return self.service is not None
 
-            if folder_list:
-                self.logger.debug("Found existing folder: '%s'", folder_name)
-                return folder_list[0]
-
-            self.logger.info("Creating new folder: '%s'", folder_name)
-            folder = self.drive.CreateFile(
-                {"title": folder_name, "mimeType": "application/vnd.google-apps.folder"}
-            )
-            folder.Upload()
-            self.logger.info("Successfully created folder: '%s'", folder_name)
-            return folder
-
-        except Exception as e:
-            self.logger.error(
-                "Error accessing folder '%s': %s", folder_name, str(e), exc_info=True
-            )
-            return None
-
-    def upload_file(self, file_path: str, folder_name: str = "Backups") -> bool:
-        """Загрузка файла в указанную папку на Google Drive"""
-        if not self.drive:
-            self.logger.error("Google Drive not initialized")
+    def upload_file(self, file_path: str, folder_id: str) -> bool:
+        if not self.is_initialized():
+            self.logger.error("Google Drive API client not initialized")
             return False
 
         try:
             file_name = os.path.basename(file_path)
-            self.logger.info(
-                "Starting upload of '%s' to folder '%s'", file_name, folder_name
+            file_metadata = {"name": file_name, "parents": [folder_id]}
+            media = MediaFileUpload(file_path, resumable=True)
+
+            uploaded_file = (
+                self.service.files()
+                .create(
+                    body=file_metadata,
+                    media_body=media,
+                    fields="id",
+                    supportsAllDrives=True,
+                )
+                .execute()
             )
 
-            folder = self.get_folder(folder_name)
-            if not folder:
-                return False
-
-            file = self.drive.CreateFile(
-                {"title": file_name, "parents": [{"id": folder["id"]}]}
-            )
-            file.SetContentFile(file_path)
-            file.Upload()
-
             self.logger.info(
-                "Successfully uploaded '%s' to folder '%s'", file_name, folder_name
+                f"Uploaded '{file_name}' to folder ID '{folder_id}' (File ID: {uploaded_file.get('id')})"
             )
             return True
 
         except Exception as e:
-            self.logger.error(
-                "Failed to upload '%s': %s", file_path, str(e), exc_info=True
-            )
+            self.logger.error(f"Failed to upload '{file_path}': {e}", exc_info=True)
             return False
 
-    def download_file(
-        self, file_name: str, folder_name: str = "Backups", local_dir: str = "."
-    ) -> Optional[str]:
-        """Скачивание файла с Google Drive"""
-        if not self.drive:
-            self.logger.error("Google Drive not initialized")
-            return None
+    def cleanup_old_backups(self, folder_id: str, retention_days: int = 3) -> bool:
+        if not self.is_initialized():
+            self.logger.error("Google Drive API client not initialized")
+            return False
 
         try:
-            self.logger.info(
-                "Attempting to download '%s' from folder '%s'", file_name, folder_name
-            )
-
-            folder = self.get_folder(folder_name)
-            if not folder:
-                return None
-
+            cutoff_time = datetime.utcnow() - timedelta(days=retention_days)
             query = (
-                f"title='{file_name}' and "
-                f"'{folder['id']}' in parents and "
-                "trashed=false"
+                f"'{folder_id}' in parents and mimeType != 'application/vnd.google-apps.folder' "
+                f"and trashed = false"
             )
-            file_list = self.drive.ListFile({"q": query}).GetList()
 
-            if not file_list:
-                self.logger.warning(
-                    "File '%s' not found in folder '%s'", file_name, folder_name
+            results = (
+                self.service.files()
+                .list(
+                    q=query,
+                    spaces="drive",
+                    fields="files(id, name, modifiedTime)",
+                    supportsAllDrives=True,
+                    includeItemsFromAllDrives=True,
                 )
-                return None
+                .execute()
+            )
 
-            os.makedirs(local_dir, exist_ok=True)
-            local_path = os.path.join(local_dir, file_name)
+            files = results.get("files", [])
+            deleted_count = 0
 
-            file = file_list[0]
-            file.GetContentFile(local_path)
+            for file in files:
+                modified_time = datetime.strptime(
+                    file["modifiedTime"], "%Y-%m-%dT%H:%M:%S.%fZ"
+                )
+                if modified_time < cutoff_time:
+                    self.service.files().delete(fileId=file["id"]).execute()
+                    self.logger.info(f"Deleted old file: {file['name']}")
+                    deleted_count += 1
 
             self.logger.info(
-                "Successfully downloaded '%s' to '%s'", file_name, local_path
+                f"Deleted {deleted_count} old backups from folder ID '{folder_id}'"
             )
-            return local_path
+            return True
 
         except Exception as e:
-            self.logger.error(
-                "Failed to download '%s': %s", file_name, str(e), exc_info=True
-            )
-            return None
-
-    def get_latest_backup(self, folder_name: str = "Backups") -> Optional[str]:
-        """Получение последнего файла бэкапа из папки"""
-        if not self.drive:
-            self.logger.error("Google Drive not initialized")
-            return None
-
-        try:
-            self.logger.debug("Searching for latest backup in folder '%s'", folder_name)
-
-            folder = self.get_folder(folder_name)
-            if not folder:
-                return None
-
-            query = f"'{folder['id']}' in parents and trashed=false"
-            file_list = self.drive.ListFile({"q": query}).GetList()
-
-            if not file_list:
-                self.logger.warning("No backups found in folder '%s'", folder_name)
-                return None
-
-            # Фильтруем только .sql.gz файлы и сортируем по дате изменения
-            backup_files = [f for f in file_list if f["title"].endswith(".sql.gz")]
-            backup_files.sort(key=lambda x: x["modifiedDate"], reverse=True)
-
-            if backup_files:
-                latest = backup_files[0]["title"]
-                self.logger.info("Found latest backup: '%s'", latest)
-                return latest
-
-            self.logger.warning(
-                "No valid backup files found in folder '%s'", folder_name
-            )
-            return None
-
-        except Exception as e:
-            self.logger.error("Error searching for backups: %s", str(e), exc_info=True)
-            return None
+            self.logger.error(f"Failed to clean up backups: {e}", exc_info=True)
+            return False
