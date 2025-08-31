@@ -24,7 +24,10 @@ class BackupManager:
         self.db_config = self.config["db_config"]
         self.backup_settings = self.config["backup_settings"]
         self.os_type = platform.system().lower()
-        self.folder_id = self.config["folder_id"]
+
+        # Fix: Get folder_id from the correct location in the config
+        self.folder_id = self.backup_settings["google_drive"].get("folder_id", "")
+
         self.gdrive_manager = (
             GoogleDriveManager()
             if self.backup_settings["google_drive"].get("enabled")
