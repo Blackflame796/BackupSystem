@@ -25,7 +25,7 @@ class BackupManager:
         self.backup_settings = self.config["backup_settings"]
         self.os_type = platform.system().lower()
 
-        # Fix: Get folder_id from the correct location in the config
+        # ИСПРАВЛЕНО: Получаем folder_id из правильного места
         self.folder_id = self.backup_settings["google_drive"].get("folder_id", "")
 
         self.gdrive_manager = (
